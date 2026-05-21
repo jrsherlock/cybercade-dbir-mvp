@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 text-center">
@@ -14,8 +16,14 @@ export default function Home() {
         A real-time arcade game built on the Verizon 2026 Data Breach
         Investigations Report. Spot the threat. Stop the breach.
       </p>
-      <p className="mt-10 rounded-full border border-white/10 bg-surface px-4 py-1.5 font-mono text-xs text-muted">
-        In development
+      <Link
+        href="/play"
+        className="mt-10 rounded-full bg-brand px-8 py-3 font-semibold text-[#0a0b0f] transition-transform hover:scale-105"
+      >
+        Play the demo
+      </Link>
+      <p className="mt-4 font-mono text-xs text-muted">
+        M1 preview — one wave playable
       </p>
     </main>
   );
