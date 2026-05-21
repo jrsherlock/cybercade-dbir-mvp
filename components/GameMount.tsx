@@ -79,7 +79,8 @@ function StartOverlay({ onStart }: { onStart: () => void }) {
         Threats fall down four lanes. Tap a real one, then pick the right
         response — <span className="text-foreground">Verify, Report, Block,
         Secure</span> — before it crosses the breach line. Leave the legit
-        stuff alone. Three wrong calls and the company is breached.
+        decoys alone. Survive four escalating waves, ending with the Shadow AI
+        Surge — lose all five trust pips and the company is breached.
       </p>
       <PlayButton onClick={onStart}>Start Wave 1</PlayButton>
     </Overlay>
@@ -100,7 +101,9 @@ function OverOverlay({
           result.survived ? "text-brand" : "text-danger"
         }`}
       >
-        {result.survived ? "Wave Cleared!" : "Company Breached"}
+        {result.survived
+          ? "All Waves Cleared!"
+          : `Breached — Wave ${result.wavesCleared + 1}`}
       </h2>
 
       <dl className="grid w-full max-w-xs grid-cols-2 gap-3 text-left">
@@ -112,8 +115,7 @@ function OverOverlay({
 
       <PlayButton onClick={onRestart}>Play again</PlayButton>
       <p className="font-mono text-[10px] text-muted">
-        M1 preview — full game, leaderboards & your Human Risk Profile are
-        coming soon.
+        Leaderboards & your personal Human Risk Profile are coming soon.
       </p>
     </Overlay>
   );

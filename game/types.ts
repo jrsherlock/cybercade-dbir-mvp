@@ -19,10 +19,26 @@ export interface GameItemDef {
   fact: string;
 }
 
+/** One escalating wave. The boss wave is the final, most intense one. */
 export interface WaveDef {
+  /** 1-based wave number. */
   index: number;
+  name: string;
   /** Ordered list of GameItemDef ids to spawn. */
   spawns: string[];
+  /** ms between spawns. */
+  spawnInterval: number;
+  /** px/second items fall. */
+  fallSpeed: number;
+  isBoss?: boolean;
+}
+
+/** Pushed to the HUD whenever a wave begins. */
+export interface WaveInfo {
+  index: number;
+  total: number;
+  name: string;
+  isBoss: boolean;
 }
 
 /** Final results emitted when a game ends. */
@@ -32,6 +48,7 @@ export interface GameResult {
   /** 0..1. */
   accuracy: number;
   bestStreak: number;
-  /** True if the company survived the wave; false if trust hit 0. */
+  wavesCleared: number;
+  /** True if the company survived all waves; false if trust hit 0. */
   survived: boolean;
 }
