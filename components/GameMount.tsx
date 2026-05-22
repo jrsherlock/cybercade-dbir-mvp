@@ -5,6 +5,7 @@ import Link from "next/link";
 import posthog from "posthog-js";
 import PhaserGame from "./PhaserGame";
 import GameHUD from "./GameHUD";
+import ScorecardPanel from "./ScorecardPanel";
 import { gameBridge } from "@/game/bridge";
 import { createClient } from "@/lib/supabase/client";
 import { randomHandle } from "@/lib/handles";
@@ -161,8 +162,12 @@ export default function GameMount() {
 
 function Overlay({ children }: { children: React.ReactNode }) {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-[#0a0b0f]/95 px-7 text-center backdrop-blur-sm">
-      {children}
+    <div className="absolute inset-0 overflow-y-auto bg-[#0a0b0f]/95 backdrop-blur-sm">
+      <div className="flex min-h-full flex-col">
+        <div className="m-auto flex w-full max-w-sm flex-col items-center gap-5 px-7 py-8 text-center">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -238,12 +243,16 @@ function OverOverlay({
         </p>
       )}
 
-      <dl className="grid w-full max-w-xs grid-cols-2 gap-3 text-left">
+      <dl className="grid w-full grid-cols-2 gap-3 text-left">
         <Stat label="Score" value={result.score.toLocaleString()} />
         <Stat label="Threats stopped" value={String(result.threatsStopped)} />
         <Stat label="Accuracy" value={`${Math.round(result.accuracy * 100)}%`} />
         <Stat label="Best streak" value={`${result.bestStreak}\u{1F525}`} />
       </dl>
+
+      <div className="h-px w-full bg-white/10" />
+      <ScorecardPanel result={result} />
+      <div className="h-px w-full bg-white/10" />
 
       <PlayButton onClick={onRestart}>Play again</PlayButton>
       <Link
@@ -253,9 +262,6 @@ function OverOverlay({
       >
         View leaderboard
       </Link>
-      <p className="font-mono text-[10px] text-muted">
-        Your personal Human Risk Profile is coming soon.
-      </p>
     </Overlay>
   );
 }

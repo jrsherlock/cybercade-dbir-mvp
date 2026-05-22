@@ -13,6 +13,15 @@ const COLORS = {
   muted: "#9aa0ad",
 };
 
+function emptyLaneStats(): Record<LaneId, { faced: number; stopped: number }> {
+  return {
+    inbox: { faced: 0, stopped: 0 },
+    logins: { faced: 0, stopped: 0 },
+    devices: { faced: 0, stopped: 0 },
+    webai: { faced: 0, stopped: 0 },
+  };
+}
+
 /**
  * The "Spot it / Stop it" game loop across four escalating DBIR waves. Phaser
  * owns all gameplay and wave sequencing; it pushes score/trust/streak/wave/
@@ -29,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   private correct = 0;
   private mistakes = 0;
   private threatsStopped = 0;
+  private laneStats = emptyLaneStats();
 
   private waveIndex = 0;
   private spawnQueue: string[] = [];
@@ -186,6 +196,7 @@ export class GameScene extends Phaser.Scene {
     this.correct = 0;
     this.mistakes = 0;
     this.threatsStopped = 0;
+    this.laneStats = emptyLaneStats();
     this.waveIndex = 0;
     this.playing = true;
 
@@ -319,6 +330,11 @@ export class GameScene extends Phaser.Scene {
 
     this.detachItem(item);
 
+    if (item.def.isThreat) {
+      this.laneStats[item.def.lane].faced += 1;
+      if (isCorrect) this.laneStats[item.def.lane].stopped += 1;
+    }
+
     if (isCorrect) {
       const points = scoreResolution({ correct: true, timeRatio, streak: this.streak });
       this.score += points;
@@ -353,6 +369,7 @@ export class GameScene extends Phaser.Scene {
   private itemBreached(item: ThreatItem): void {
     this.detachItem(item);
     if (item.def.isThreat) {
+      this.laneStats[item.def.lane].faced += 1;
       this.trust -= 1;
       this.streak = 0;
       this.mistakes += 1;
@@ -424,6 +441,11 @@ export class GameScene extends Phaser.Scene {
       bestStreak: this.bestStreak,
       wavesCleared: survived ? WAVES.length : this.waveIndex,
       survived,
+      categories: LANES.map((l) => ({
+        id: l.id,
+        faced: this.laneStats[l.id].faced,
+        stopped: this.laneStats[l.id].stopped,
+      })),
     });
   }
 

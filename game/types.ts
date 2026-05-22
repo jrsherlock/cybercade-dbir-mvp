@@ -41,6 +41,15 @@ export interface WaveInfo {
   isBoss: boolean;
 }
 
+/** Per-lane threat-handling performance, for the Human Risk Profile scorecard. */
+export interface CategoryResult {
+  id: LaneId;
+  /** Threats from this lane that left play (stopped, mis-handled, or breached). */
+  faced: number;
+  /** Threats from this lane stopped with the correct response. */
+  stopped: number;
+}
+
 /** Final results emitted when a game ends. */
 export interface GameResult {
   score: number;
@@ -51,4 +60,6 @@ export interface GameResult {
   wavesCleared: number;
   /** True if the company survived all waves; false if trust hit 0. */
   survived: boolean;
+  /** Per-lane breakdown — feeds the Human Risk Profile scorecard. */
+  categories: CategoryResult[];
 }

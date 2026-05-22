@@ -47,4 +47,5 @@ next-env.d.ts
 
 # PostHog wizard artifacts (the integration code itself is committed)
 .posthog-events.json
+posthog-setup-report.md
 /.claude
