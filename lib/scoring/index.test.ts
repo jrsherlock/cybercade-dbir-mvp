@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scoreResolution, streakMultiplier, SCORING } from "./index";
+import { scoreResolution, streakMultiplier, maxGameScore, SCORING } from "./index";
 
 describe("streakMultiplier", () => {
   it("is 1.0 at streak 0", () => {
@@ -48,5 +48,25 @@ describe("scoreResolution", () => {
     expect(scoreResolution({ correct: true, timeRatio: 5, streak: 0 })).toBe(
       SCORING.basePoints + SCORING.maxSpeedBonus,
     );
+  });
+});
+
+describe("maxGameScore", () => {
+  it("is 0 for no threats", () => {
+    expect(maxGameScore(0)).toBe(0);
+  });
+
+  it("equals one perfect resolution for a single threat", () => {
+    expect(maxGameScore(1)).toBe(
+      scoreResolution({ correct: true, timeRatio: 1, streak: 0 }),
+    );
+  });
+
+  it("increases monotonically with threat count", () => {
+    expect(maxGameScore(10)).toBeGreaterThan(maxGameScore(5));
+  });
+
+  it("treats a negative count as 0", () => {
+    expect(maxGameScore(-3)).toBe(0);
   });
 });

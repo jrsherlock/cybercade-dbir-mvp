@@ -1,31 +1,125 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import PhaserGame from "./PhaserGame";
 import GameHUD from "./GameHUD";
 import { gameBridge } from "@/game/bridge";
+import { createClient } from "@/lib/supabase/client";
+import { randomHandle } from "@/lib/handles";
 import type { GameResult, GameState } from "@/game/types";
 
+interface RankInfo {
+  rank: number;
+  total: number;
+}
+
+const HANDLE_KEY = "cybercade-handle";
+
 /**
- * The game shell: hosts the Phaser canvas and the React chrome (HUD + start /
- * game-over overlays), wired together through the bridge.
+ * The game shell: hosts the Phaser canvas and React chrome, and bridges the
+ * game to the backend — anonymous auth, a signed play session, and score
+ * submission. Backend calls are best-effort: if they fail, the game still
+ * plays, the score just isn't recorded.
  */
 export default function GameMount() {
+  const supabase = useMemo(() => createClient(), []);
   const [state, setState] = useState<GameState>("idle");
   const [result, setResult] = useState<GameResult | null>(null);
+  const [rank, setRank] = useState<RankInfo | null>(null);
+  const tokenRef = useRef<string | null>(null);
+  const handleRef = useRef<string>("");
+
+  // Establish the player's handle + anonymous auth session on mount.
+  useEffect(() => {
+    let handle = localStorage.getItem(HANDLE_KEY);
+    if (!handle) {
+      handle = randomHandle();
+      localStorage.setItem(HANDLE_KEY, handle);
+    }
+    handleRef.current = handle;
+
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) void supabase.auth.signInAnonymously();
+    });
+  }, [supabase]);
+
+  const openSession = useCallback(async () => {
+    try {
+      let session = (await supabase.auth.getSession()).data.session;
+      if (!session) {
+        await supabase.auth.signInAnonymously();
+        session = (await supabase.auth.getSession()).data.session;
+      }
+      if (!session) return;
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { token?: string };
+        tokenRef.current = json.token ?? null;
+      }
+    } catch {
+      // backend not ready / offline — the game still plays.
+    }
+  }, [supabase]);
+
+  const submitScore = useCallback(
+    async (r: GameResult) => {
+      const token = tokenRef.current;
+      tokenRef.current = null;
+      if (!token) return;
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        if (!session) return;
+        const res = await fetch("/api/score", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            token,
+            score: r.score,
+            accuracy: r.accuracy,
+            bestStreak: r.bestStreak,
+            threatsStopped: r.threatsStopped,
+            wavesCleared: r.wavesCleared,
+            survived: r.survived,
+            displayName: handleRef.current,
+          }),
+        });
+        if (res.ok) {
+          const json = (await res.json()) as RankInfo;
+          setRank(json);
+        }
+      } catch {
+        // score submission is best-effort.
+      }
+    },
+    [supabase],
+  );
 
   useEffect(() => {
-    const offs = [
-      gameBridge.on("state", setState),
-      gameBridge.on("result", setResult),
-    ];
-    return () => offs.forEach((off) => off());
-  }, []);
+    const offState = gameBridge.on("state", setState);
+    const offResult = gameBridge.on("result", (r) => {
+      setResult(r);
+      void submitScore(r);
+    });
+    return () => {
+      offState();
+      offResult();
+    };
+  }, [submitScore]);
 
-  const start = () => {
+  const start = useCallback(() => {
     setResult(null);
+    setRank(null);
+    tokenRef.current = null;
     gameBridge.emit("start", undefined);
-  };
+    void openSession();
+  }, [openSession]);
 
   return (
     <div className="flex flex-1 items-center justify-center p-3">
@@ -34,7 +128,7 @@ export default function GameMount() {
         {state === "playing" && <GameHUD />}
         {state === "idle" && <StartOverlay onStart={start} />}
         {state === "over" && result && (
-          <OverOverlay result={result} onRestart={start} />
+          <OverOverlay result={result} rank={rank} onRestart={start} />
         )}
       </div>
     </div>
@@ -83,15 +177,23 @@ function StartOverlay({ onStart }: { onStart: () => void }) {
         Surge — lose all five trust pips and the company is breached.
       </p>
       <PlayButton onClick={onStart}>Start Wave 1</PlayButton>
+      <Link
+        href="/leaderboard"
+        className="font-mono text-xs text-muted underline-offset-4 hover:text-foreground hover:underline"
+      >
+        View leaderboard
+      </Link>
     </Overlay>
   );
 }
 
 function OverOverlay({
   result,
+  rank,
   onRestart,
 }: {
   result: GameResult;
+  rank: RankInfo | null;
   onRestart: () => void;
 }) {
   return (
@@ -106,6 +208,12 @@ function OverOverlay({
           : `Breached — Wave ${result.wavesCleared + 1}`}
       </h2>
 
+      {rank && (
+        <p className="font-mono text-sm text-brand-2">
+          Ranked #{rank.rank.toLocaleString()} of {rank.total.toLocaleString()}
+        </p>
+      )}
+
       <dl className="grid w-full max-w-xs grid-cols-2 gap-3 text-left">
         <Stat label="Score" value={result.score.toLocaleString()} />
         <Stat label="Threats stopped" value={String(result.threatsStopped)} />
@@ -114,8 +222,14 @@ function OverOverlay({
       </dl>
 
       <PlayButton onClick={onRestart}>Play again</PlayButton>
+      <Link
+        href="/leaderboard"
+        className="font-mono text-xs text-muted underline-offset-4 hover:text-foreground hover:underline"
+      >
+        View leaderboard
+      </Link>
       <p className="font-mono text-[10px] text-muted">
-        Leaderboards & your personal Human Risk Profile are coming soon.
+        Your personal Human Risk Profile is coming soon.
       </p>
     </Overlay>
   );

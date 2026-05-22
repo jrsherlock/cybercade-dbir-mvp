@@ -37,3 +37,16 @@ export function scoreResolution({ correct, timeRatio, streak }: ResolutionInput)
   const base = SCORING.basePoints + Math.round(SCORING.maxSpeedBonus * ratio);
   return Math.round(base * streakMultiplier(streak));
 }
+
+/**
+ * Theoretical maximum score for a game with `threatCount` threats — every
+ * threat caught instantly on an unbroken streak. Used server-side as the upper
+ * bound for score validation.
+ */
+export function maxGameScore(threatCount: number): number {
+  let total = 0;
+  for (let k = 0; k < Math.max(0, threatCount); k++) {
+    total += scoreResolution({ correct: true, timeRatio: 1, streak: k });
+  }
+  return total;
+}
