@@ -16,8 +16,8 @@ export interface BridgeEvents {
   state: GameState;
   wave: WaveInfo;
   result: GameResult;
-  /** React -> Phaser: (re)start the game. Commands are never cached. */
-  start: void;
+  /** React -> Phaser: (re)start the game with an optional shuffle seed. */
+  start: { seed?: string };
 }
 
 type Handler<K extends keyof BridgeEvents> = (payload: BridgeEvents[K]) => void;

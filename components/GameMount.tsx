@@ -11,20 +11,22 @@ import { createClient } from "@/lib/supabase/client";
 import { randomHandle } from "@/lib/handles";
 import type { GameResult, GameState } from "@/game/types";
 
+type Mode = "solo" | "daily";
+
 interface RankInfo {
   rank: number;
   total: number;
+  streak?: number;
 }
 
 const HANDLE_KEY = "cybercade-handle";
 
 /**
- * The game shell: hosts the Phaser canvas and React chrome, and bridges the
- * game to the backend — anonymous auth, a signed play session, and score
- * submission. Backend calls are best-effort: if they fail, the game still
- * plays, the score just isn't recorded.
+ * The game shell. `mode` selects the run type: "solo" gets a fresh random
+ * shuffle each play; "daily" gets today's shared challenge seed and the score
+ * is tagged to the daily leaderboard.
  */
-export default function GameMount() {
+export default function GameMount({ mode = "solo" }: { mode?: Mode }) {
   const supabase = useMemo(() => createClient(), []);
   const [state, setState] = useState<GameState>("idle");
   const [result, setResult] = useState<GameResult | null>(null);
@@ -32,7 +34,6 @@ export default function GameMount() {
   const tokenRef = useRef<string | null>(null);
   const handleRef = useRef<string>("");
 
-  // Establish the player's handle + anonymous auth session on mount.
   useEffect(() => {
     let handle = localStorage.getItem(HANDLE_KEY);
     if (!handle) {
@@ -45,33 +46,40 @@ export default function GameMount() {
       if (data.session) {
         posthog.identify(data.session.user.id);
       } else {
-        void supabase.auth.signInAnonymously().then(({ data: anonData }) => {
-          if (anonData.session) posthog.identify(anonData.session.user.id);
+        void supabase.auth.signInAnonymously().then(({ data: anon }) => {
+          if (anon.session) posthog.identify(anon.session.user.id);
         });
       }
     });
   }, [supabase]);
 
-  const openSession = useCallback(async () => {
+  /** Opens a play session; returns the shuffle seed for the game. */
+  const openSession = useCallback(async (): Promise<string | undefined> => {
     try {
       let session = (await supabase.auth.getSession()).data.session;
       if (!session) {
         await supabase.auth.signInAnonymously();
         session = (await supabase.auth.getSession()).data.session;
       }
-      if (!session) return;
+      if (!session) return undefined;
       const res = await fetch("/api/session", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ mode }),
       });
       if (res.ok) {
-        const json = (await res.json()) as { token?: string };
+        const json = (await res.json()) as { token?: string; seed?: string };
         tokenRef.current = json.token ?? null;
+        return json.seed;
       }
     } catch {
       // backend not ready / offline — the game still plays.
     }
-  }, [supabase]);
+    return undefined;
+  }, [supabase, mode]);
 
   const submitScore = useCallback(
     async (r: GameResult) => {
@@ -98,10 +106,7 @@ export default function GameMount() {
             displayName: handleRef.current,
           }),
         });
-        if (res.ok) {
-          const json = (await res.json()) as RankInfo;
-          setRank(json);
-        }
+        if (res.ok) setRank((await res.json()) as RankInfo);
       } catch {
         // score submission is best-effort.
       }
@@ -115,6 +120,7 @@ export default function GameMount() {
       setResult(r);
       void submitScore(r);
       posthog.capture(r.survived ? "game_completed" : "game_over", {
+        mode,
         score: r.score,
         threats_stopped: r.threatsStopped,
         accuracy: r.accuracy,
@@ -126,7 +132,6 @@ export default function GameMount() {
       posthog.capture("wave_started", {
         wave_index: w.index,
         wave_name: w.name,
-        wave_total: w.total,
         is_boss: w.isBoss,
       });
     });
@@ -135,23 +140,23 @@ export default function GameMount() {
       offResult();
       offWave();
     };
-  }, [submitScore]);
+  }, [submitScore, mode]);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     setResult(null);
     setRank(null);
     tokenRef.current = null;
-    posthog.capture("game_started");
-    gameBridge.emit("start", undefined);
-    void openSession();
-  }, [openSession]);
+    posthog.capture("game_started", { mode });
+    const seed = await openSession();
+    gameBridge.emit("start", { seed });
+  }, [openSession, mode]);
 
   return (
     <div className="flex flex-1 items-center justify-center p-3">
       <div className="relative aspect-[9/16] h-full max-h-[860px] w-full max-w-[480px] overflow-hidden rounded-2xl border border-white/10 bg-[#0a0b0f] shadow-2xl">
         <PhaserGame />
         {state === "playing" && <GameHUD />}
-        {state === "idle" && <StartOverlay onStart={start} />}
+        {state === "idle" && <StartOverlay mode={mode} onStart={start} />}
         {state === "over" && result && (
           <OverOverlay result={result} rank={rank} onRestart={start} />
         )}
@@ -189,29 +194,38 @@ function PlayButton({
   );
 }
 
-function StartOverlay({ onStart }: { onStart: () => void }) {
+function StartOverlay({ mode, onStart }: { mode: Mode; onStart: () => void }) {
+  const daily = mode === "daily";
   return (
     <Overlay>
       <p className="font-mono text-xs uppercase tracking-[0.3em] text-brand-2">
-        2026-DBIR Edition
+        {daily ? "Daily Challenge" : "2026-DBIR Edition"}
       </p>
       <h1 className="text-3xl font-bold tracking-tight">
         Defend the <span className="text-brand">Human Firewall</span>
       </h1>
       <p className="max-w-xs text-balance text-sm leading-relaxed text-muted">
-        Threats fall down four lanes. Tap a real one, then pick the right
-        response — <span className="text-foreground">Verify, Report, Block,
-        Secure</span> — before it crosses the breach line. Leave the legit
-        decoys alone. Survive four escalating waves, ending with the Shadow AI
-        Surge — lose all five trust pips and the company is breached.
+        {daily
+          ? "Today's challenge — everyone faces the same shuffled run. Tap real threats, pick the right response, and leave the legit decoys alone. One board, one shot at the top."
+          : "Threats fall down four lanes. Tap a real one, then pick the right response — Verify, Report, Block, Secure — before it crosses the breach line. Leave the legit decoys alone. Survive four escalating waves, ending with the Shadow AI Surge."}
       </p>
-      <PlayButton onClick={onStart}>Start Wave 1</PlayButton>
-      <Link
-        href="/leaderboard"
-        className="font-mono text-xs text-muted underline-offset-4 hover:text-foreground hover:underline"
-      >
-        View leaderboard
-      </Link>
+      <PlayButton onClick={onStart}>
+        {daily ? "Start Daily Challenge" : "Start Wave 1"}
+      </PlayButton>
+      <div className="flex gap-4 font-mono text-xs text-muted">
+        <Link
+          href={daily ? "/play" : "/daily"}
+          className="underline-offset-4 hover:text-foreground hover:underline"
+        >
+          {daily ? "Free play" : "Daily challenge"}
+        </Link>
+        <Link
+          href="/leaderboard"
+          className="underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Leaderboard
+        </Link>
+      </div>
     </Overlay>
   );
 }
@@ -242,6 +256,11 @@ function OverOverlay({
           Ranked #{rank.rank.toLocaleString()} of {rank.total.toLocaleString()}
         </p>
       )}
+      {rank?.streak ? (
+        <p className="font-mono text-sm font-bold text-warning">
+          {rank.streak}-day streak {"\u{1F525}"}
+        </p>
+      ) : null}
 
       <dl className="grid w-full grid-cols-2 gap-3 text-left">
         <Stat label="Score" value={result.score.toLocaleString()} />

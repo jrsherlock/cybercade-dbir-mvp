@@ -5,6 +5,7 @@ import { verifySessionToken } from "@/lib/session-token";
 import { maxGameScore } from "@/lib/scoring";
 import { ITEMS, WAVES } from "@/game/content/dbir-2026";
 import { getPostHogClient } from "@/lib/posthog-server";
+import { previousDate } from "@/lib/daily";
 
 const TOKEN_TTL_MS = 30 * 60 * 1000;
 const MIN_PLAYTIME_MS = 8_000;
@@ -77,9 +78,11 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
   const posthog = getPostHogClient();
 
+  // select("*") so a missing challenge_date column (pre-M5 migration) can't
+  // break score submission for solo play.
   const { data: session } = await admin
     .from("game_sessions")
-    .select("id, player_id, status")
+    .select("*")
     .eq("id", payload.sid)
     .single();
   if (!session || session.player_id !== userId) {
@@ -95,6 +98,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "already_scored" }, { status: 409 });
   }
 
+  const challengeDate: string | null = session.challenge_date ?? null;
+
   const insert = await admin.from("scores").insert({
     session_id: payload.sid,
     player_id: userId,
@@ -105,6 +110,7 @@ export async function POST(req: Request) {
     wave_reached: body.wavesCleared,
     survived: body.survived,
     display_name: body.displayName?.slice(0, 40) ?? null,
+    challenge_date: challengeDate,
     validated: true,
   });
   if (insert.error) {
@@ -115,6 +121,28 @@ export async function POST(req: Request) {
     .from("game_sessions")
     .update({ status: "scored" })
     .eq("id", payload.sid);
+
+  // Daily challenge: advance the player's day streak.
+  let streak: number | undefined;
+  if (challengeDate) {
+    const { data: player } = await admin
+      .from("players")
+      .select("streak_count, last_played_date")
+      .eq("id", userId)
+      .single();
+    const last: string | null = player?.last_played_date ?? null;
+    if (last === challengeDate) {
+      streak = player?.streak_count ?? 1;
+    } else {
+      streak = last === previousDate(challengeDate)
+        ? (player?.streak_count ?? 0) + 1
+        : 1;
+      await admin
+        .from("players")
+        .update({ streak_count: streak, last_played_date: challengeDate })
+        .eq("id", userId);
+    }
+  }
 
   const { count: higher } = await admin
     .from("scores")
@@ -137,11 +165,12 @@ export async function POST(req: Request) {
       threats_stopped: body.threatsStopped,
       waves_cleared: body.wavesCleared,
       survived: body.survived,
+      daily: !!challengeDate,
       rank,
       total: totalCount,
     },
   });
   await posthog.shutdown();
 
-  return NextResponse.json({ rank, total: totalCount });
+  return NextResponse.json({ rank, total: totalCount, streak });
 }

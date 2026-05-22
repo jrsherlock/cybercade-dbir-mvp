@@ -6,6 +6,7 @@ import type { LaneId, ResponseId, WaveDef } from "../types";
 import { ThreatItem } from "../objects/ThreatItem";
 import { sfx } from "../sfx";
 import { scoreResolution } from "@/lib/scoring";
+import { makeRng, shuffle } from "@/lib/rng";
 
 const COLORS = {
   teal: "#3ee6c4",
@@ -47,6 +48,7 @@ export class GameScene extends Phaser.Scene {
   private currentFallSpeed = 80;
   private spawnTimer?: Phaser.Time.TimerEvent;
   private playing = false;
+  private seed?: string;
 
   private laneX = {} as Record<LaneId, number>;
   private feedbackText!: Phaser.GameObjects.Text;
@@ -108,7 +110,7 @@ export class GameScene extends Phaser.Scene {
       },
     );
 
-    this.unsubStart = gameBridge.on("start", () => this.startGame());
+    this.unsubStart = gameBridge.on("start", (p) => this.startGame(p.seed));
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.unsubStart?.());
 
     gameBridge.emit("state", "idle");
@@ -187,7 +189,8 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private startGame(): void {
+  private startGame(seed?: string): void {
+    this.seed = seed;
     this.clearItems();
     this.score = 0;
     this.trust = BALANCE.trustMax;
@@ -211,7 +214,9 @@ export class GameScene extends Phaser.Scene {
   private startWave(index: number): void {
     this.waveIndex = index;
     const wave = WAVES[index];
-    this.spawnQueue = [...wave.spawns];
+    this.spawnQueue = this.seed
+      ? shuffle(wave.spawns, makeRng(`${this.seed}:${wave.index}`))
+      : [...wave.spawns];
     this.spawnsDone = false;
     this.currentFallSpeed = wave.fallSpeed;
     this.inInterstitial = true;

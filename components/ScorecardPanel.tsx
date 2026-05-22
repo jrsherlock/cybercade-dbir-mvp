@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import posthog from "posthog-js";
 import { createClient } from "@/lib/supabase/client";
 import type { GameResult } from "@/game/types";
 import type { Scorecard, ScorecardCategory } from "@/lib/scorecard";
@@ -55,6 +56,7 @@ export default function ScorecardPanel({ result }: { result: GameResult }) {
       });
       if (!res.ok) throw new Error("request failed");
       setDone((await res.json()) as DoneState);
+      posthog.capture("lead_captured", { segment });
       setStep("done");
     } catch {
       setStep("error");
@@ -65,7 +67,10 @@ export default function ScorecardPanel({ result }: { result: GameResult }) {
     return (
       <div className="flex w-full flex-col items-center gap-2">
         <button
-          onClick={() => setStep("form")}
+          onClick={() => {
+            posthog.capture("scorecard_opened");
+            setStep("form");
+          }}
           className="w-full rounded-full bg-brand px-6 py-3 text-sm font-bold text-[#0a0b0f] transition-transform hover:scale-[1.03] active:scale-95"
         >
           Get my Human Risk Profile →
@@ -201,6 +206,7 @@ export default function ScorecardPanel({ result }: { result: GameResult }) {
         href={card.cta.url}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => posthog.capture("cta_clicked")}
         className="mt-1 w-full rounded-full bg-brand px-6 py-3 text-center text-sm font-bold text-[#0a0b0f] transition-transform hover:scale-[1.03]"
       >
         {card.cta.label} →

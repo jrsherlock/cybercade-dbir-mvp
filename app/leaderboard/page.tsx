@@ -18,11 +18,11 @@ interface Row {
   survived: boolean;
 }
 
-async function topScores(): Promise<Row[]> {
+async function topScores(view: string): Promise<Row[]> {
   try {
     const admin = createAdminClient();
     const { data } = await admin
-      .from("leaderboard")
+      .from(view)
       .select(
         "rank, score, display_name, accuracy, best_streak, wave_reached, survived",
       )
@@ -34,8 +34,38 @@ async function topScores(): Promise<Row[]> {
   }
 }
 
-export default async function LeaderboardPage() {
-  const rows = await topScores();
+function Tab({
+  href,
+  label,
+  active,
+}: {
+  href: string;
+  label: string;
+  active: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+        active
+          ? "bg-brand text-[#0a0b0f]"
+          : "border border-white/10 text-muted hover:text-foreground"
+      }`}
+    >
+      {label}
+    </Link>
+  );
+}
+
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const tab = (await searchParams).tab === "daily" ? "daily" : "global";
+  const rows = await topScores(
+    tab === "daily" ? "daily_leaderboard" : "leaderboard",
+  );
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-12">
@@ -44,17 +74,23 @@ export default async function LeaderboardPage() {
       </p>
       <h1 className="mt-2 text-3xl font-bold tracking-tight">Leaderboard</h1>
       <p className="mt-2 text-sm text-muted">
-        Top human firewalls. Think you can do better?{" "}
+        Top human firewalls.{" "}
         <Link href="/play" className="text-brand hover:underline">
-          Play now
+          Think you can do better?
         </Link>
-        .
       </p>
 
-      <div className="mt-8 overflow-hidden rounded-xl border border-white/10">
+      <div className="mt-6 flex gap-2">
+        <Tab href="/leaderboard" label="All-time" active={tab === "global"} />
+        <Tab href="/leaderboard?tab=daily" label="Today" active={tab === "daily"} />
+      </div>
+
+      <div className="mt-5 overflow-hidden rounded-xl border border-white/10">
         {rows.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-muted">
-            No scores yet — be the first to make the board.
+            {tab === "daily"
+              ? "No daily-challenge scores yet today — be the first."
+              : "No scores yet — be the first to make the board."}
           </p>
         ) : (
           <table className="w-full text-sm">
@@ -69,10 +105,7 @@ export default async function LeaderboardPage() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr
-                  key={r.rank}
-                  className="border-b border-white/5 last:border-0"
-                >
+                <tr key={r.rank} className="border-b border-white/5 last:border-0">
                   <td className="px-4 py-3 font-mono font-bold text-muted">
                     {r.rank}
                   </td>
@@ -99,7 +132,10 @@ export default async function LeaderboardPage() {
 
       <div className="mt-6 flex gap-4 font-mono text-xs text-muted">
         <Link href="/play" className="hover:text-foreground">
-          ← Back to the game
+          ← Free play
+        </Link>
+        <Link href="/daily" className="hover:text-foreground">
+          Daily challenge
         </Link>
         <Link href="/" className="hover:text-foreground">
           Home
