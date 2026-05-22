@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import posthog from "posthog-js";
 import PhaserGame from "./PhaserGame";
 import GameHUD from "./GameHUD";
 import { gameBridge } from "@/game/bridge";
@@ -40,7 +41,13 @@ export default function GameMount() {
     handleRef.current = handle;
 
     void supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) void supabase.auth.signInAnonymously();
+      if (data.session) {
+        posthog.identify(data.session.user.id);
+      } else {
+        void supabase.auth.signInAnonymously().then(({ data: anonData }) => {
+          if (anonData.session) posthog.identify(anonData.session.user.id);
+        });
+      }
     });
   }, [supabase]);
 
@@ -106,10 +113,26 @@ export default function GameMount() {
     const offResult = gameBridge.on("result", (r) => {
       setResult(r);
       void submitScore(r);
+      posthog.capture(r.survived ? "game_completed" : "game_over", {
+        score: r.score,
+        threats_stopped: r.threatsStopped,
+        accuracy: r.accuracy,
+        best_streak: r.bestStreak,
+        waves_cleared: r.wavesCleared,
+      });
+    });
+    const offWave = gameBridge.on("wave", (w) => {
+      posthog.capture("wave_started", {
+        wave_index: w.index,
+        wave_name: w.name,
+        wave_total: w.total,
+        is_boss: w.isBoss,
+      });
     });
     return () => {
       offState();
       offResult();
+      offWave();
     };
   }, [submitScore]);
 
@@ -117,6 +140,7 @@ export default function GameMount() {
     setResult(null);
     setRank(null);
     tokenRef.current = null;
+    posthog.capture("game_started");
     gameBridge.emit("start", undefined);
     void openSession();
   }, [openSession]);
@@ -225,6 +249,7 @@ function OverOverlay({
       <Link
         href="/leaderboard"
         className="font-mono text-xs text-muted underline-offset-4 hover:text-foreground hover:underline"
+        onClick={() => posthog.capture("leaderboard_link_clicked")}
       >
         View leaderboard
       </Link>

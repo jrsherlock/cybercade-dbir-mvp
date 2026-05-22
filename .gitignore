@@ -43,3 +43,8 @@ next-env.d.ts
 
 # local reference material (DBIR PDF, design assets)
 /reference
+.env.local
+
+# PostHog wizard artifacts (the integration code itself is committed)
+.posthog-events.json
+/.claude

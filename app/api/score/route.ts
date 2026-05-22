@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifySessionToken } from "@/lib/session-token";
 import { maxGameScore } from "@/lib/scoring";
 import { ITEMS, WAVES } from "@/game/content/dbir-2026";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 const TOKEN_TTL_MS = 30 * 60 * 1000;
 const MIN_PLAYTIME_MS = 8_000;
@@ -67,10 +68,14 @@ export async function POST(req: Request) {
   }
 
   if (!plausible(body)) {
+    const ph = getPostHogClient();
+    ph.capture({ distinctId: userId, event: "score_submission_rejected" });
+    await ph.shutdown();
     return NextResponse.json({ error: "implausible_score" }, { status: 422 });
   }
 
   const admin = createAdminClient();
+  const posthog = getPostHogClient();
 
   const { data: session } = await admin
     .from("game_sessions")
@@ -81,6 +86,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "unknown_session" }, { status: 404 });
   }
   if (session.status !== "active") {
+    posthog.capture({
+      distinctId: userId,
+      event: "score_already_submitted",
+      properties: { session_id: payload.sid },
+    });
+    await posthog.shutdown();
     return NextResponse.json({ error: "already_scored" }, { status: 409 });
   }
 
@@ -113,5 +124,24 @@ export async function POST(req: Request) {
     .from("scores")
     .select("id", { count: "exact", head: true });
 
-  return NextResponse.json({ rank: (higher ?? 0) + 1, total: total ?? 1 });
+  const rank = (higher ?? 0) + 1;
+  const totalCount = total ?? 1;
+
+  posthog.capture({
+    distinctId: userId,
+    event: "score_submitted",
+    properties: {
+      score: body.score,
+      accuracy: body.accuracy,
+      best_streak: body.bestStreak,
+      threats_stopped: body.threatsStopped,
+      waves_cleared: body.wavesCleared,
+      survived: body.survived,
+      rank,
+      total: totalCount,
+    },
+  });
+  await posthog.shutdown();
+
+  return NextResponse.json({ rank, total: totalCount });
 }
